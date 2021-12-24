@@ -1,0 +1,206 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+##Data Visualization
+
+```{r}
+library(tidyverse)
+```
+```{r}
+dat = read.csv("Case-study-training-data.csv")
+dat_test = read.csv("Case-study-test-data.csv")
+dat_test = tibble(dat_test)
+dat = tibble(dat)
+str(dat)
+```
+```{r}
+dat = na.omit(dat)
+dat$Def_ind = as.factor(dat$Def_ind)
+dat$ind_XYZ = as.factor(dat$ind_XYZ)
+dat$rep_education = as.factor(dat$rep_education)
+levels(dat$rep_education)
+```
+
+```{r}
+dat_test$Def_ind = as.factor(dat_test$Def_ind)
+dat_test$ind_XYZ = as.factor(dat_test$ind_XYZ)
+dat_test = dat_test[!dat_test$rep_education == "",]
+dat_test$rep_education = as.factor(dat_test$rep_education)
+#dat$num_mortgage_currently_past_due = as.factor(dat$num_mortgage_currently_past_due)
+#dat$num_card_12_month = as.factor(dat$num_card_12_month)
+#dat$num_auto_.36_month = as.factor(dat$num_auto_.36_month)
+#dat$num_acc_30d_past_due_6_months = as.factor(dat$num_acc_30d_past_due_6_months)
+summary(dat)
+```
+```{r}
+#p1 = ggplot(dat, aes(tot_balance)) + geom_histogram(bins = 50) + xlab("Total balance available for all credit products") + ylab("Frequency") + ggtitle("Distribution of total available balance")
+#p2 = ggplot(dat, aes(tot_balance, Def_ind)) + geom_boxplot() + labs(title = "Total balance available effect on credit approval", x = "Total balance available for all credit products", y = "Credit Approval")
+#plot_grid(p1, p2)
+#ggplot(dat, aes(rep_income, Def_ind)) + geom_boxplot(notch = T) + labs(title = "Annual Income effect on credit approval", x = "Annual Income (self-reported)", y = "Credit Approval")
+#p1 = ggplot (dat, aes(uti_open_card,rep_income, color = Def_ind)) + geom_point() + labs(title = "Income vs Utilization", x = "utilization (open cards)", y = "Annual self-reported income", color = "Approval") + theme(legend.position = "bottom")
+#p2 = ggplot(dat, aes(uti_open_card, Def_ind)) + geom_boxplot() + labs(title = "Utilization vs approval", x = "utilization (open cards)", y = "Credit appproval")
+#plot_grid(p1, p2)
+ggplot(dat, aes(Def_ind, pct_over_50_uti)) + geom_boxplot()
+```
+
+
+```{r}
+con_dat = (dat[,c(-21, -20, -18, -8)])
+dat.pca.scaled = princomp(con_dat, cor=T)
+library(ggbiplot)
+```
+
+```{r}
+ggbiplot(dat.pca.scaled, groups =dat$Def_ind, ellipse = TRUE, obs.scale = 1, var.scale = 1)
+```
+
+```{r}
+df = data.frame(npc = 1:ncol(con_dat), cpve = cumsum(dat.pca.scaled$sdev^2)/sum(dat.pca.scaled$sdev^2))
+ggplot(df, aes(npc, cpve)) + geom_line() + geom_point() + theme_bw() + labs(title = "Screen Plot", x = "Number of PC's", y = "Cumulative proportion of variance explained")
+```
+
+```{r}
+ggplot(dat, aes(Def_ind, fill = ind_XYZ)) + geom_bar(width = 0.5) + coord_flip() + labs(title = "Data distribution in credit approval with bank account", x = "Frequency", y = "Cred
+it Approved", fill = "account")
+```
+
+```{r}
+ggplot(dat, aes(Def_ind, fill = rep_education)) + geom_bar(width = 0.5) + coord_flip() + labs(title = "Data distribution in credit approval with education level", x = "Frequency",
+ y = "Credit Approved", fill = "education")
+```
+
+```{r}
+library(pROC)
+library(MASS)
+```
+
+```{r}
+fit0 = glm(Def_ind~tot_balance, family = "binomial", data = dat)
+fit1 = glm(Def_ind ~ . , family = "binomial", data = dat)
+summary(fit1)
+```
+
+```{r}
+fit_roc = roc(dat$Def_ind, fit1$fitted.values, levels=c("0", "1"))
+ggroc(fit_roc, color="blue") + theme_bw() + labs(caption = fit_roc$auc)
+```
+
+```{r}
+{ sink("/dev/null"); aic_both_l = stepAIC(fit0, direction= "both", scope = list(upper=fit1, lower=fit0)); sink(); }
+fit_roc = roc(dat$Def_ind, aic_both_l$fitted.values, levels=c("0", "1"))
+fit_roc$auc
+```
+
+```{r}
+ggroc(fit_roc, color="blue") + theme_bw() + labs(caption = fit_roc$auc)
+```
+
+```{r}
+fit0 = glm(Def_ind~tot_balance, family = "binomial", data = dat)
+fit1 = glm(Def_ind ~ .^2 , family = "binomial", data = dat)
+{ sink("/dev/null"); aic_both_1 = stepAIC(fit0, direction= "both", scope = list(upper=fit1, lower=fit0)); sink(); }
+aic_both_1$aic
+```
+
+```{r}
+fit_roc = roc(dat$Def_ind, aic_both_1$fitted.values, levels=c("0", "1"))
+fit_roc$auc
+```
+
+```{r}
+ggroc(fit_roc, color="blue") + theme_bw() + labs(caption = fit_roc$auc)
+```
+
+```{r}
+glm.probs =predict(aic_both_1, dat_test, type="response")
+probs = ifelse(glm.probs > 0.5, 1, 0)
+a <- table(probs)
+accuracy = a[1] / (a[1]+a[2])
+```
+
+```{r}
+fit_c = glm(formula = Def_ind ~ tot_balance + num_acc_30d_past_due_12_months + 
+ uti_open_card + num_inq_12_month + credit_age + avg_bal_cards + 
+ num_acc_30d_past_due_6_months + ind_XYZ + num_card_12_month + 
+ num_mortgage_currently_past_due + pct_over_50_uti + num_card_inq_24_month + 
+ tot_amount_currently_past_due + rep_education + num_acc_30d_past_due_12_months:num_inq_12_month + 
+ tot_balance:avg_bal_cards + uti_open_card:ind_XYZ + avg_bal_cards:num_card_12_month + 
+ uti_open_card:num_inq_12_month + tot_balance:num_acc_30d_past_due_6_months + 
+ tot_balance:credit_age + uti_open_card:num_card_inq_24_month + 
+ num_inq_12_month:avg_bal_cards + num_card_12_month:rep_education + 
+ num_inq_12_month:num_mortgage_currently_past_due + credit_age:num_card_12_month + 
+ tot_balance:num_card_12_month + I(tot_balance ^ 2) + I(avg_bal_cards^3), family = "binomial", data = dat)
+fit_roc = roc(dat$Def_ind, fit_c$fitted.values, levels=c("0", "1"))
+fit_roc$auc
+```
+
+```{r}
+ggroc(fit_roc, color="blue") + theme_bw() + labs(caption = fit_roc$auc)
+```
+
+```{r}
+glm.probs =predict(fit_c, dat_test, type="response")
+probs = ifelse(glm.probs > 0.5, 1, 0)
+a <- table(probs)
+accuracy = a[1] / (a[1]+a[2])
+```
+
+##Neural Network
+
+
+```{r}
+library(keras)
+scaled.dat = scale(dat[, c(-21, -20, -18)])
+scaled.test.dat = scale(dat_test[, c(-21, -20, -18)])
+dat.y = to_categorical(dat$Def_ind, 2)
+test.dat.y = to_categorical(dat_test$Def_ind, 2)
+```
+
+
+```{r}
+model <- keras_model_sequential() 
+model %>% 
+ layer_dense(units = 16, activation = "relu", input_shape = c(18)) %>% 
+ layer_dropout(rate = 0.1) %>% 
+ layer_dense(units = 8, activation = "tanh") %>%
+ layer_dropout(rate = 0.1) %>%
+ layer_dense(units = 2, activation = "softmax")
+summary(model)
+```
+
+```{r}
+model %>% compile(
+ loss = "categorical_crossentropy",
+ optimizer = optimizer_adam(),
+ metrics = c("accuracy")
+)
+history <- model %>% fit(
+ scaled.dat, dat.y, 
+ epochs = 15, batch_size = 15, 
+ validation_split = 0.2
+)
+```
+
+##Evaluation and prediction on test data
+
+```{r}
+model %>% evaluate(scaled.test.dat, test.dat.y,verbose = 1)
+```
+
+```{r}
+y_pred = model %>% predict_classes(scaled.test.dat)
+```
+
+
+
+
+
+
+
+
+
+
+
+
